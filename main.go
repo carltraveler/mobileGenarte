@@ -8,6 +8,7 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/unknwon/goconfig"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -25,8 +26,6 @@ const (
 )
 
 type PhoneMD5 struct {
-	Id          uint32 `json:"id" db:"Id"`
-	PType       uint32 `json:"pType db:"PType"`
 	PhoneNumber uint64 `json:"phoneNumber db:"PhoneNumber"`
 	PhoneMD5    string `json:"phoneMD5" db:"PhoneMD5"`
 }
@@ -37,9 +36,26 @@ type SagaApiDB struct {
 	DB *sqlx.DB
 }
 
+func (this *SagaApiDB) InsertPhoneMD5Batch(infos []*PhoneMD5) error {
+	var err error
+	if len(infos) == 0 {
+		return nil
+	}
+
+	sqlStrArr := make([]string, len(infos))
+	for i, info := range infos {
+		sqlStrArr[i] = fmt.Sprintf("('%d','%s')", info.PhoneNumber, info.PhoneMD5)
+	}
+
+	strSql := `insert into tbl_phone_lib_md5 (PhoneNumber,PhoneMD5) values`
+	strSql += strings.Join(sqlStrArr, ",")
+	_, err = this.DB.Exec(strSql)
+	return err
+}
+
 func (this *SagaApiDB) InsertPhoneMD5(info *PhoneMD5) error {
-	valueStr := fmt.Sprintf("('%d','%d','%s')", info.PType, info.PhoneNumber, info.PhoneMD5)
-	strSql := `insert into tbl_phone_lib_md5 (PType,PhoneNumber,PhoneMD5) values` + valueStr
+	valueStr := fmt.Sprintf("('%d','%s')", info.PhoneNumber, info.PhoneMD5)
+	strSql := `insert into tbl_phone_lib_md5 (PhoneNumber,PhoneMD5) values` + valueStr
 	_, err := this.DB.Exec(strSql)
 	return err
 }
@@ -102,6 +118,7 @@ func getConfig(configFile string) (*DBConfig, error) {
 
 const MAX3 uint64 = 99999999
 const MAX4 uint64 = 9999999
+const BATCHNUM uint32 = 1000
 
 func main() {
 	config, err := getConfig("config.ini")
@@ -142,9 +159,9 @@ func main() {
 
 			phoneNumber := uint64(prefixInt) * (max + 1)
 			fmt.Printf("type: %d. prefix int %d, start with prefix int %d\n", kt, uint64(prefixInt), phoneNumber)
+			batch := make([]*PhoneMD5, 0)
 			for i := uint64(0); i <= max; i++ {
 				t := &PhoneMD5{
-					PType:       kt,
 					PhoneNumber: phoneNumber + i,
 					PhoneMD5:    fmt.Sprintf("%x", md5.Sum([]byte(strconv.Itoa(int(phoneNumber+i))))),
 				}
@@ -153,9 +170,21 @@ func main() {
 					fmt.Printf("kt: %d. Phone: %d, MD5: %s\n", kt, t.PhoneNumber, t.PhoneMD5)
 				}
 
-				err := DefSagaApiDB.InsertPhoneMD5(t)
-				if err != nil {
-					panic(err)
+				if len(batch) < int(BATCHNUM) {
+					batch = append(batch, t)
+					if i == max {
+						err := DefSagaApiDB.InsertPhoneMD5Batch(batch)
+						if err != nil {
+							panic(err)
+						}
+						batch = batch[:0]
+					}
+				} else {
+					err := DefSagaApiDB.InsertPhoneMD5Batch(batch)
+					if err != nil {
+						panic(err)
+					}
+					batch = batch[:0]
 				}
 			}
 		}
