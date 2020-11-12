@@ -6,8 +6,10 @@ import (
 	"github.com/ontio/ontology/common"
 	"github.com/ontio/ontology/core/store/leveldbstore"
 	"github.com/unknwon/goconfig"
+	"os"
+	"os/signal"
 	"strconv"
-	"sync"
+	"syscall"
 )
 
 type ServerConfig struct {
@@ -111,21 +113,13 @@ func saveYunYingShang(passStore *leveldbstore.LevelDBStore, config *ServerConfig
 				fmt.Printf("kt: %d. Phone: %d, MD5: %x\n", kt, t.PhoneNumber, t.PhoneMD5)
 			}
 
-			if i%uint64(config.BatchNum) == 0 {
+			BatchPutPhoneMD5(t, store)
+			if i%uint64(config.BatchNum) == 0 || i == max {
 				err = store.BatchCommit()
 				if err != nil {
 					panic(err)
 				}
 				store.NewBatch()
-			} else {
-				BatchPutPhoneMD5(t, store)
-				if i == max {
-					err = store.BatchCommit()
-					if err != nil {
-						panic(err)
-					}
-					store.NewBatch()
-				}
 			}
 		}
 	}
@@ -151,16 +145,25 @@ func main() {
 
 	// total 11.
 
-	var wg sync.WaitGroup
 	for kt, yunyingshang := range all {
-		wg.Add(1)
-		go func(passStore *leveldbstore.LevelDBStore, config *ServerConfig, kt uint8, yunyingshang []string) {
-			saveYunYingShang(passStore, config, kt, yunyingshang)
-			wg.Done()
-		}(store, config, kt, yunyingshang)
-		fmt.Printf("kt: %d start \n", kt)
+		go saveYunYingShang(store, config, kt, yunyingshang)
 	}
 
 	fmt.Printf("all type start\n")
-	wg.Wait()
+	waitToExit(store)
+}
+
+func waitToExit(store *leveldbstore.LevelDBStore) {
+	exit := make(chan bool, 0)
+	sc := make(chan os.Signal, 1)
+	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+	go func(store *leveldbstore.LevelDBStore) {
+		for sig := range sc {
+			fmt.Printf("waitToExit get sig====\n", sig.String())
+			store.Close()
+			close(exit)
+			break
+		}
+	}(store)
+	<-exit
 }
