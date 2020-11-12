@@ -7,6 +7,7 @@ import (
 	"github.com/ontio/ontology/core/store/leveldbstore"
 	"github.com/unknwon/goconfig"
 	"strconv"
+	"sync"
 )
 
 type ServerConfig struct {
@@ -76,6 +77,60 @@ func getConfig(configFile string) (*ServerConfig, error) {
 const MAX3 uint64 = 99999999
 const MAX4 uint64 = 9999999
 
+func saveYunYingShang(passStore *leveldbstore.LevelDBStore, config *ServerConfig, kt uint8, yunyingshang []string) {
+	var storeE leveldbstore.LevelDBStore
+	storeE = *passStore
+	store := &storeE
+	store.NewBatch()
+	fmt.Printf("saveYunYingShang handle type %d\n", kt)
+
+	for _, prefix := range yunyingshang {
+		var max uint64
+		prefixInt, err := strconv.Atoi(prefix)
+		if err != nil {
+			fmt.Errorf("prefix: %s", prefix)
+			panic(err)
+		}
+
+		if len(prefix) == 3 {
+			max = MAX3
+		} else {
+			max = MAX4
+		}
+
+		phoneNumber := uint64(prefixInt) * (max + 1)
+		fmt.Printf("type: %d. prefix int %d, start with prefix int %d\n", kt, uint64(prefixInt), phoneNumber)
+		for i := uint64(0); i <= max; i++ {
+			t := &PhoneMD5{
+				PType:       kt,
+				PhoneNumber: phoneNumber + i,
+				PhoneMD5:    md5.Sum([]byte(strconv.Itoa(int(phoneNumber + i)))),
+			}
+
+			if i%uint64(config.Interval) == 0 {
+				fmt.Printf("kt: %d. Phone: %d, MD5: %x\n", kt, t.PhoneNumber, t.PhoneMD5)
+			}
+
+			if i%uint64(config.BatchNum) == 0 {
+				err = store.BatchCommit()
+				if err != nil {
+					panic(err)
+				}
+				store.NewBatch()
+			} else {
+				BatchPutPhoneMD5(t, store)
+				if i == max {
+					err = store.BatchCommit()
+					if err != nil {
+						panic(err)
+					}
+					store.NewBatch()
+				}
+			}
+		}
+	}
+}
+
 func main() {
 	config, err := getConfig("config.ini")
 	if err != nil {
@@ -83,7 +138,7 @@ func main() {
 	}
 
 	store, err := leveldbstore.NewLevelDBStore(config.DBName)
-	store.NewBatch()
+	//store.NewBatch()
 
 	var dianxing []string = []string{"174", "190", "193", "133", "149", "153", "162", "1700", "1701", "1702", "173", "177", "180", "181", "189", "191", "199"}
 	var liantong []string = []string{"130", "131", "132", "140", "145", "146", "155", "156", "166", "167", "1704", "1707", "1708", "1709", "171", "175", "176", "185", "186"}
@@ -96,51 +151,16 @@ func main() {
 
 	// total 11.
 
+	var wg sync.WaitGroup
 	for kt, yunyingshang := range all {
-		for _, prefix := range yunyingshang {
-			var max uint64
-			prefixInt, err := strconv.Atoi(prefix)
-			if err != nil {
-				fmt.Errorf("prefix: %s", prefix)
-				panic(err)
-			}
-
-			if len(prefix) == 3 {
-				max = MAX3
-			} else {
-				max = MAX4
-			}
-
-			phoneNumber := uint64(prefixInt) * (max + 1)
-			fmt.Printf("type: %d. prefix int %d, start with prefix int %d\n", kt, uint64(prefixInt), phoneNumber)
-			for i := uint64(0); i <= max; i++ {
-				t := &PhoneMD5{
-					PType:       kt,
-					PhoneNumber: phoneNumber + i,
-					PhoneMD5:    md5.Sum([]byte(strconv.Itoa(int(phoneNumber + i)))),
-				}
-
-				if i%uint64(config.Interval) == 0 {
-					fmt.Printf("kt: %d. Phone: %d, MD5: %x\n", kt, t.PhoneNumber, t.PhoneMD5)
-				}
-
-				if i%uint64(config.BatchNum) == 0 {
-					err = store.BatchCommit()
-					if err != nil {
-						panic(err)
-					}
-					store.NewBatch()
-				} else {
-					BatchPutPhoneMD5(t, store)
-					if i == max {
-						err = store.BatchCommit()
-						if err != nil {
-							panic(err)
-						}
-						store.NewBatch()
-					}
-				}
-			}
-		}
+		wg.Add(1)
+		go func(passStore *leveldbstore.LevelDBStore, config *ServerConfig, kt uint8, yunyingshang []string) {
+			saveYunYingShang(passStore, config, kt, yunyingshang)
+			wg.Done()
+		}(store, config, kt, yunyingshang)
+		fmt.Printf("kt: %d start \n", kt)
 	}
+
+	fmt.Printf("all type start\n")
+	wg.Wait()
 }
