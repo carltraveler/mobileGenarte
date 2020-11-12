@@ -85,6 +85,8 @@ func saveYunYingShang(passStore *leveldbstore.LevelDBStore, config *ServerConfig
 	store := &storeE
 	store.NewBatch()
 	fmt.Printf("saveYunYingShang handle type %d\n", kt)
+	var k uint64
+	k = 0
 
 	for _, prefix := range yunyingshang {
 		var max uint64
@@ -102,27 +104,35 @@ func saveYunYingShang(passStore *leveldbstore.LevelDBStore, config *ServerConfig
 
 		phoneNumber := uint64(prefixInt) * (max + 1)
 		fmt.Printf("type: %d. prefix int %d, start with prefix int %d\n", kt, uint64(prefixInt), phoneNumber)
-		for i := uint64(0); i <= max; i++ {
+		for i := uint64(0); i <= max; i = i + uint64(config.Interval) {
 			t := &PhoneMD5{
 				PType:       kt,
 				PhoneNumber: phoneNumber + i,
 				PhoneMD5:    md5.Sum([]byte(strconv.Itoa(int(phoneNumber + i)))),
 			}
 
-			if i%uint64(config.Interval) == 0 {
-				fmt.Printf("kt: %d. Phone: %d, MD5: %x\n", kt, t.PhoneNumber, t.PhoneMD5)
-			}
+			if i%uint64(config.BatchNum) == 0 {
+				BatchPutPhoneMD5(t, store)
+				k++
 
-			BatchPutPhoneMD5(t, store)
-			if i%uint64(config.BatchNum) == 0 || i == max {
-				err = store.BatchCommit()
-				if err != nil {
-					panic(err)
+				if k%uint64(config.Interval) == 0 {
+					fmt.Printf("kt: %d. Phone: %d, MD5: %x\n", kt, t.PhoneNumber, t.PhoneMD5)
 				}
-				store.NewBatch()
+
+				if k%uint64(config.BatchNum) == 0 {
+					k = 0
+					err = store.BatchCommit()
+					if err != nil {
+						panic(err)
+					}
+					store.NewBatch()
+				}
 			}
 		}
 	}
+
+	store.BatchCommit()
+	fmt.Printf("type %d done====\n", kt)
 }
 
 func main() {
