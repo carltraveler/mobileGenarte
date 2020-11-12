@@ -12,6 +12,7 @@ import (
 type ServerConfig struct {
 	BatchNum uint32
 	DBName   string
+	Interval uint32
 }
 
 const (
@@ -50,12 +51,23 @@ func getConfig(configFile string) (*ServerConfig, error) {
 		return nil, err
 	}
 
+	intervalt, err := cfg.GetValue("config", "interval")
+	if err != nil {
+		return nil, err
+	}
+
+	interval, err := strconv.Atoi(intervalt)
+	if err != nil {
+		return nil, err
+	}
+
 	dbName, err := cfg.GetValue("config", "dbname")
 	if err != nil {
 		return nil, err
 	}
 
 	return &ServerConfig{
+		Interval: uint32(interval),
 		BatchNum: uint32(batchNum),
 		DBName:   dbName,
 	}, nil
@@ -101,7 +113,6 @@ func main() {
 
 			phoneNumber := uint64(prefixInt) * (max + 1)
 			fmt.Printf("type: %d. prefix int %d, start with prefix int %d\n", kt, uint64(prefixInt), phoneNumber)
-			batch := make([]*PhoneMD5, 0)
 			for i := uint64(0); i <= max; i++ {
 				t := &PhoneMD5{
 					PType:       kt,
@@ -109,23 +120,24 @@ func main() {
 					PhoneMD5:    md5.Sum([]byte(strconv.Itoa(int(phoneNumber + i)))),
 				}
 
-				if i%1000 == 0 {
+				if i%uint64(config.Interval) == 0 {
 					fmt.Printf("kt: %d. Phone: %d, MD5: %x\n", kt, t.PhoneNumber, t.PhoneMD5)
 				}
 
-				if len(batch) < int(config.BatchNum) {
+				if i%uint64(config.BatchNum) == 0 {
+					err = store.BatchCommit()
+					if err != nil {
+						panic(err)
+					}
+					store.NewBatch()
+				} else {
 					BatchPutPhoneMD5(t, store)
 					if i == max {
 						err = store.BatchCommit()
 						if err != nil {
 							panic(err)
 						}
-					}
-				} else {
-					BatchPutPhoneMD5(t, store)
-					err = store.BatchCommit()
-					if err != nil {
-						panic(err)
+						store.NewBatch()
 					}
 				}
 			}
