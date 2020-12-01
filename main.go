@@ -19,9 +19,10 @@ type ServerConfig struct {
 }
 
 const (
-	TYPE_DIANXING uint8 = 1
-	TYPE_LIANTONG uint8 = 2
-	TYPE_YIDONG   uint8 = 3
+	TYPE_DIANXING  uint8 = 1
+	TYPE_LIANTONG  uint8 = 2
+	TYPE_YIDONG    uint8 = 3
+	TYPE_GUANGDIAN uint8 = 4
 )
 
 type PhoneMD5 struct {
@@ -134,14 +135,12 @@ func main() {
 	store, err := leveldbstore.NewLevelDBStore(config.DBName)
 	//store.NewBatch()
 
-	var dianxing []string = []string{"174", "190", "193", "133", "149", "153", "162", "1700", "1701", "1702", "173", "177", "180", "181", "189", "191", "199"}
-	var liantong []string = []string{"130", "131", "132", "140", "145", "146", "155", "156", "166", "167", "1704", "1707", "1708", "1709", "171", "175", "176", "185", "186"}
-	var yidong []string = []string{"197", "134", "135", "136", "137", "138", "139", "147", "148", "150", "151", "152", "157", "158", "159", "165", "1703", "1705", "1706", "172", "178", "182", "183", "184", "187", "188", "195", "198"}
+	var liantong []string = []string{"196"}
+	var guangdian []string = []string{"192"}
 
 	all := make(map[uint8][]string)
-	all[TYPE_DIANXING] = dianxing
 	all[TYPE_LIANTONG] = liantong
-	all[TYPE_YIDONG] = yidong
+	all[TYPE_GUANGDIAN] = guangdian
 
 	// total 11.
 
